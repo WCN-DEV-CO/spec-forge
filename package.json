@@ -1,0 +1,1 @@
+{ "name": "spec-forge", "version": "1.0.0", "description": "Schema-validated config-to-spec builder with typed defaults, enums, and min/max. Zero dependencies.", "main": "src/index.js", "scripts": { "test": "node test/test.js" }, "license": "MIT", "keywords": ["schema","validation","config","spec","defaults","builder","zero-dependency"], "author": "WCN Development Co" }
