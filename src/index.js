@@ -1,26 +1,81 @@
-// spec-forge — schema-validated "config -> spec" builder with typed defaults. Zero deps.
-// Original code, released under MIT. Generic builder — bring your own schema.
-function applyDefaults(input, schema) {
-  const out = {};
-  for (const [key, def] of Object.entries(schema)) {
-    let val = input[key];
-    if (val === undefined || val === null) val = def.default;
-    if (def.required && (val === undefined || val === null)) throw new Error(`missing required field: ${key}`);
-    if (val !== undefined && def.type && typeof val !== def.type && def.type !== "any")
-      throw new Error(`field "${key}" expected ${def.type}, got ${typeof val}`);
-    if (val !== undefined && def.enum && !def.enum.includes(val))
-      throw new Error(`field "${key}" must be one of ${def.enum.join(", ")}`);
-    if (val !== undefined && def.type === "number") {
-      if (def.min !== undefined && val < def.min) throw new Error(`field "${key}" below min ${def.min}`);
-      if (def.max !== undefined && val > def.max) throw new Error(`field "${key}" above max ${def.max}`);
-    }
-    out[key] = val;
+/** WCN SpecForge — Schema-validated config-to-spec builder with typed defaults. */
+class SpecForge {
+  constructor(schema) {
+    this.schema = schema;
+    this.compiled = this._compile(schema);
   }
-  return out;
+
+  _compile(schema) {
+    const compiled = {};
+    for (const [key, def] of Object.entries(schema)) {
+      compiled[key] = {
+        type: def.type || 'string',
+        default: def.default,
+        required: def.required || false,
+        validate: def.validate || null,
+        transform: def.transform || null,
+        enum: def.enum || null,
+      };
+    }
+    return compiled;
+  }
+
+  build(config = {}) {
+    const spec = {};
+    const errors = [];
+
+    for (const [key, field] of Object.entries(this.compiled)) {
+      let value = config[key];
+
+      if (value === undefined || value === null) {
+        if (field.required && field.default === undefined) {
+          errors.push(`Missing required field: ${key}`);
+          continue;
+        }
+        value = field.default;
+      }
+
+      if (value !== undefined && value !== null) {
+        if (field.transform) value = field.transform(value);
+        value = this._coerceType(value, field.type);
+        if (field.enum && !field.enum.includes(value)) {
+          errors.push(`Invalid value for ${key}: ${value}. Must be one of: ${field.enum.join(', ')}`);
+        }
+        if (field.validate && !field.validate(value)) {
+          errors.push(`Validation failed for ${key}: ${value}`);
+        }
+      }
+
+      spec[key] = value;
+    }
+
+    if (errors.length > 0) throw new Error('Spec validation errors: ' + errors.join('; '));
+    return spec;
+  }
+
+  _coerceType(value, type) {
+    switch (type) {
+      case 'string': return String(value);
+      case 'number': return Number(value);
+      case 'boolean': return value === 'true' || value === true;
+      case 'array': return Array.isArray(value) ? value : [value];
+      case 'object': return typeof value === 'object' ? value : JSON.parse(value);
+      default: return value;
+    }
+  }
+
+  getDefaults() {
+    const defaults = {};
+    for (const [key, field] of Object.entries(this.compiled)) {
+      defaults[key] = field.default;
+    }
+    return defaults;
+  }
+
+  validate(config) {
+    try { this.build(config); return { valid: true, errors: [] }; }
+    catch (e) { return { valid: false, errors: [e.message] }; }
+  }
 }
-// build: validate + default an input against a schema, optionally transform into a final spec.
-function build(input, schema, transform) {
-  const validated = applyDefaults(input || {}, schema);
-  return transform ? transform(validated) : validated;
-}
-module.exports = { build, applyDefaults };
+
+module.exports = { SpecForge };
